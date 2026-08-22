@@ -625,15 +625,6 @@ def main() -> None:
     """Top-level page assembly."""
     render_sidebar()
 
-    # --- Pending prompt dispatcher (runs OUTSIDE any column/layout context) ---
-    # This fixes the bug where clicking a starter button on the right half
-    # would constrain the response to only that 50%-width column. We store
-    # the prompt in session_state + rerun, then consume it here at full-width.
-    if st.session_state.pending_prompt is not None:
-        prompt_text = st.session_state.pending_prompt
-        st.session_state.pending_prompt = None
-        run_user_prompt(prompt_text)
-
     # --- Main content area -----------------------------------------------
     st.title("🤝 Consult an Expert AI")
     st.caption(
@@ -647,6 +638,21 @@ def main() -> None:
         render_welcome_header()
     else:
         render_messages()
+
+    # --- Pending prompt dispatcher (runs OUTSIDE any column/layout context) ---
+    # CRITICAL: This MUST run AFTER the title/divider and AFTER render_messages()
+    # so that:
+    #   1. The "Consult an Expert AI" heading stays at the TOP and never
+    #      appears injected mid-stream (old bug where streaming ran BEFORE the title).
+    #   2. Prior messages render FIRST, then the new user+assistant turn streams
+    #      BELOW them (old bug: render_messages() ran AFTER run_user_prompt()
+    #      so the same messages were drawn a second time → "restart from first").
+    # We store the prompt in session_state + rerun on button click, then consume
+    # it here at full-width (no inherited column-50% constraint).
+    if st.session_state.pending_prompt is not None:
+        prompt_text = st.session_state.pending_prompt
+        st.session_state.pending_prompt = None
+        run_user_prompt(prompt_text)
 
     # The chat input is always rendered at the bottom
     handle_chat_input()
