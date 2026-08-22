@@ -7,7 +7,6 @@
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://multi-role-ai-expert-system.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](#-tech-stack)
 [![Groq](https://img.shields.io/badge/API-Groq-ff4c4c.svg)](#-architecture)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](#-license)
 [![Dev Container](https://img.shields.io/badge/Dev%20Container-Ready-0078d7.svg)](#-codespaces-setup)
 
 **Live Demo →** [https://multi-role-ai-expert-system.streamlit.app/](https://multi-role-ai-expert-system.streamlit.app/)
@@ -33,6 +32,7 @@
   - [Step 2 — Deploy to Streamlit Community Cloud](#step-2--deploy-to-streamlit-community-cloud)
 - [🔧 Configuration](#-configuration)
 - [🧩 Workflow Diagram](#-workflow-diagram)
+- [🖼️ Output Images](#-output-images)
 - [🔐 Security & Safeguards](#-security--safeguards)
 - [🤝 Contributing](#-contributing)
 
@@ -330,6 +330,22 @@ sequenceDiagram
     UI->>User: 6. Render usage stats card (tokens / sec)
     UI->>State: Append assistant msg + usage → messages[]
 ```
+---
+
+## 🖼️ Output Images
+<img width="1919" height="1017" alt="Screenshot 2026-08-22 115750" src="https://github.com/user-attachments/assets/01a7b7cb-f4a6-407c-a678-95d3def33729" />
+
+<img width="1919" height="1013" alt="Screenshot 2026-08-22 115942" src="https://github.com/user-attachments/assets/356169b7-51bb-44e4-b5e6-9911fb4ccf88" />
+
+<img width="1919" height="1015" alt="Screenshot 2026-08-22 120004" src="https://github.com/user-attachments/assets/6a051aa1-bc85-4eb2-8edd-a2f454a6d246" />
+
+<img width="1918" height="1021" alt="Screenshot 2026-08-22 120010" src="https://github.com/user-attachments/assets/89aef07e-6fb3-4650-80e8-cb0e023b8d3b" />
+
+<img width="1919" height="1012" alt="Screenshot 2026-08-22 120158" src="https://github.com/user-attachments/assets/5d8ec41d-765e-46a4-b94e-523d3f47810d" />
+
+<img width="1919" height="1017" alt="Screenshot 2026-08-22 120206" src="https://github.com/user-attachments/assets/c5a5d428-fd4c-4464-9ae8-613ad792aab5" />
+
+<img width="1919" height="1017" alt="Screenshot 2026-08-22 120213" src="https://github.com/user-attachments/assets/10c544bf-1d1a-45c4-9086-f3d08c7ce6c2" />
 
 ---
 
