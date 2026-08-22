@@ -42,7 +42,6 @@ from roles import (
     get_system_prompt,
 )
 from groq_client import (
-    COMMON_GROQ_MODELS,
     DEFAULT_MODEL,
     GroqClient,
     GroqAuthenticationError,
@@ -94,9 +93,11 @@ def _init_session_state() -> None:
     if "conversation_started" not in st.session_state:
         st.session_state.conversation_started = False
 
-    # --- Settings (persisted across reruns, overridable per chat) ---
-    if "model" not in st.session_state:
-        st.session_state.model = DEFAULT_MODEL
+    # --- Settings ---
+    # CRITICAL: ALWAYS force the model to DEFAULT_MODEL.
+    # Prevents stale "llama-3.1-70b-versatile" (decommissioned) from persisting
+    # in user sessions across code updates — no user-facing model choice anymore.
+    st.session_state.model = DEFAULT_MODEL
 
     if "temperature" not in st.session_state:
         st.session_state.temperature = 0.7
@@ -130,11 +131,21 @@ def get_groq_client() -> GroqClient:
     exploring roles, reading docs, etc).
     """
     try:
-        return GroqClient(
-            default_model=st.session_state.model,
-            default_temperature=st.session_state.temperature,
-            default_max_tokens=st.session_state.max_tokens,
-        )
+        # ══════════════════════════════════════════════════════════════════
+        # IMPORTANT: pass NO constructor arguments here.
+        #
+        #   - GroqClient() already uses DEFAULT_MODEL, 0.7 temp, 4096 tokens
+        #     as its __init__ defaults (see groq_client.py).
+        #   - @st.cache_resource keys on function args. If we ever passed
+        #     `default_model=st.session_state.model` here (old code), and
+        #     session_state.model was the decommissioned llama-3.1-70b on
+        #     the first run, that BAD cached client would live FOREVER in
+        #     the Python process, permanently poisoning every request.
+        #   - Temperature / max_tokens sliders are already forwarded as
+        #     explicit kwargs at the chat() / chat_stream() call sites,
+        #     so the client defaults are irrelevant at runtime.
+        # ══════════════════════════════════════════════════════════════════
+        return GroqClient()
     except GroqAuthenticationError:
         # Swallow so we can show a nice banner instead of crashing the app
         return None  # type: ignore[return-value]
@@ -195,17 +206,15 @@ def render_sidebar() -> None:
 
         # --- Advanced Settings -------------------------------------------
         with st.expander("⚙️ Advanced Settings", expanded=False):
-            model_choice = st.selectbox(
-                "Groq Model",
-                COMMON_GROQ_MODELS,
-                index=(
-                    COMMON_GROQ_MODELS.index(st.session_state.model)
-                    if st.session_state.model in COMMON_GROQ_MODELS
-                    else 0
-                ),
-                help="Select which Groq-hosted model to use.",
-            )
-            st.session_state.model = model_choice
+            # Fixed model (no user choice) — display what we're using.
+            # See DEFAULT_MODEL in groq_client.py to change it.
+            with st.container(border=True):
+                st.markdown("🤖 **Groq Model (fixed)**")
+                st.code(DEFAULT_MODEL, language="text")
+                st.caption(
+                    "Model is locked to prevent decommissioning errors. "
+                    "To switch it, edit `DEFAULT_MODEL` in `groq_client.py`."
+                )
 
             temp_val = st.slider(
                 "Temperature",
@@ -483,7 +492,7 @@ def run_user_prompt(user_text: str) -> None:
 
                 stream = client.chat_stream(
                     messages=messages_for_api,
-                    model=st.session_state.model,
+                    model=DEFAULT_MODEL,
                     temperature=st.session_state.temperature,
                     max_tokens=st.session_state.max_tokens,
                 )
@@ -498,7 +507,7 @@ def run_user_prompt(user_text: str) -> None:
                 with st.spinner("⏳ Generating response..."):
                     response = client.chat(
                         messages=messages_for_api,
-                        model=st.session_state.model,
+                        model=DEFAULT_MODEL,
                         temperature=st.session_state.temperature,
                         max_tokens=st.session_state.max_tokens,
                     )

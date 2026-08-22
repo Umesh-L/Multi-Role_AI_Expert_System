@@ -36,22 +36,24 @@ from dotenv import load_dotenv
 # Constants
 # -----------------------------------------------------------------------------
 
-# Default Groq model used when none is explicitly specified.
-# llama-3.1-70b-versatile provides excellent quality at very fast speeds.
-DEFAULT_MODEL: str = "llama-3.1-70b-versatile"
+# ═══════════════════════════════════════════════════════════════════════════════
+# SINGLE FIXED MODEL LOCKED FOR ALL REQUESTS (no user choice exposed in UI).
+#
+# Picked openai/gpt-oss-120b because:
+#   • Launched Aug 2025 on Groq — definitely NOT decommissioned (Aug 2026 date)
+#   • Groq's current flagship open-weight model (131k ctx window, ~500 t/s)
+#   • Official replacement suggested by Groq for retired llama-3.3/3.1 lineups
+#   • Supports tool use, browser search, code execution, reasoning OOTB
+#
+# If Groq ever retires THIS model, update the string below to a new model from
+# https://console.groq.com/docs/models — that's the only change required.
+# ═══════════════════════════════════════════════════════════════════════════════
+DEFAULT_MODEL: str = "openai/gpt-oss-120b"
 
-# Models available on Groq at the time of writing; the client will not
-# enforce this list so newly released models work automatically.
-# Reference: https://console.groq.com/docs/models
+# The UI no longer lets users pick a model, but we keep this list with exactly
+# ONE entry so existing code paths (index-in-list lookups, etc.) don't break.
 COMMON_GROQ_MODELS: List[str] = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "llama-3.1-8b-instant",
-    "llama3-70b-8192",
-    "llama3-8b-8192",
-    "mixtral-8x7b-32768",
-    "gemma-7b-it",
-    "gemma2-9b-it",
+    DEFAULT_MODEL,
 ]
 
 
@@ -186,8 +188,64 @@ class GroqClient:
         self.default_temperature = default_temperature
         self.default_max_tokens = default_max_tokens
 
+        # ════════════════════════════════════════════════════════════════════
+        # BULLETPROOF GUARD (post-assignment override):
+        # Even if a caller (or a stale @st.cache_resource cached instance)
+        # passes the WRONG default_model (e.g. a decommissioned one), ALWAYS
+        # force self.default_model back to the source-of-truth DEFAULT_MODEL
+        # constant. No exceptions.
+        #
+        # This prevents the "llama-3.1-70b-versatile cached forever" bug
+        # where @st.cache_resource keys on constructor args and keeps a
+        # client built from a stale session_state.model from the first run.
+        # ════════════════════════════════════════════════════════════════════
+        self.default_model = DEFAULT_MODEL
+
         self._api_key = self._resolve_api_key(api_key)
         self._client = self._create_sdk_client(self._api_key)
+
+    # -----------------------------------------------------------------
+    # Internal: model-name gatekeeper
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _sanitize_model(model_arg: Optional[str]) -> str:
+        """
+        FINAL FIREWALL before any Groq SDK call.
+
+        Regardless of what the caller passed (or what came from a cached
+        client default), the returned model is ALWAYS the source-of-truth
+        DEFAULT_MODEL constant.
+
+        Why this exists:
+          - @st.cache_resource can cache GroqClient() instances built with
+            stale constructor args (e.g. default_model="llama-3.1-70b-versatile"
+            from before code was patched)
+          - Callers may accidentally pass session_state.model before the
+            unconditional-overwrite init runs
+          - ANY string containing "llama-3.1", "llama3.1", "llama-3.3", or
+            containing "decommissioned" substrings is *guaranteed* wrong
+
+        This method eradicates all of those vectors in one place.
+        """
+        # Future-proof blacklist — if Groq retires more model families,
+        # add their prefixes here and they'll be rejected at the gate:
+        _DECOMMISSIONED_HINTS = (
+            "llama-3.1", "llama3.1",
+            "llama-3.3", "llama3.3",
+            "llama-3.2", "llama3.2",
+            "gemma-7b",
+            "mixtral-8x7b",
+        )
+        m = (model_arg or "").strip()
+        # If the caller passed a blacklisted model — ignore it completely
+        if any(hint.lower() in m.lower() for hint in _DECOMMISSIONED_HINTS):
+            return DEFAULT_MODEL
+        # If the caller passed something that doesn't match our locked model
+        # exactly — ignore it too. We only talk to one model, ever.
+        if m != DEFAULT_MODEL:
+            return DEFAULT_MODEL
+        return DEFAULT_MODEL  # redundancy — guarantees the return value
 
     # -----------------------------------------------------------------
     # Key resolution
@@ -287,7 +345,12 @@ class GroqClient:
         try:
             raw_response = self._client.chat.completions.create(
                 messages=messages,
-                model=model or self.default_model,
+                # ══════════════════════════════════════════════════════════════
+                # FINAL GATEKEEPER: _sanitize_model() returns DEFAULT_MODEL
+                # unconditionally. NO caller input (cached default, stale
+                # session state, malicious string) can bypass this.
+                # ══════════════════════════════════════════════════════════════
+                model=self._sanitize_model(model),
                 temperature=(
                     self.default_temperature if temperature is None else temperature
                 ),
@@ -325,7 +388,12 @@ class GroqClient:
         try:
             stream = self._client.chat.completions.create(
                 messages=messages,
-                model=model or self.default_model,
+                # ══════════════════════════════════════════════════════════════
+                # FINAL GATEKEEPER: _sanitize_model() returns DEFAULT_MODEL
+                # unconditionally. NO caller input (cached default, stale
+                # session state, malicious string) can bypass this.
+                # ══════════════════════════════════════════════════════════════
+                model=self._sanitize_model(model),
                 temperature=(
                     self.default_temperature if temperature is None else temperature
                 ),
@@ -416,6 +484,19 @@ class GroqClient:
             raise GroqServiceError(
                 "⚠️ Groq service is currently unavailable. This is a temporary issue "
                 "on their end — please retry in a moment.\n\n"
+                f"Original error: {original_exc}"
+            ) from original_exc
+
+        # Model decommissioned / deprecated (Groq returns "model_decommissioned" code)
+        if "decommissioned" in msg or "model_decommissioned" in msg:
+            raise GroqValidationError(
+                "🛑 **Model no longer available.** Groq has decommissioned the model "
+                "currently hardcoded in the app.\n\n"
+                "👉 Fix: Edit `DEFAULT_MODEL` in `groq_client.py` (around line 51) and "
+                "set it to a currently-available model from Groq's model list, then "
+                "fully restart the Streamlit server (Ctrl+C + `streamlit run app.py`).\n\n"
+                "Groq models: https://console.groq.com/docs/models\n"
+                "Groq deprecations: https://console.groq.com/docs/deprecations\n\n"
                 f"Original error: {original_exc}"
             ) from original_exc
 
