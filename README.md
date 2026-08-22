@@ -7,7 +7,6 @@
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://multi-role-ai-expert-system.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](#-tech-stack)
 [![Groq](https://img.shields.io/badge/API-Groq-ff4c4c.svg)](#-architecture)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](#-license)
 [![Dev Container](https://img.shields.io/badge/Dev%20Container-Ready-0078d7.svg)](#-codespaces-setup)
 
 **Live Demo →** [https://multi-role-ai-expert-system.streamlit.app/](https://multi-role-ai-expert-system.streamlit.app/)
