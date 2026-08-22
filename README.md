@@ -35,7 +35,6 @@
 - [🧩 Workflow Diagram](#-workflow-diagram)
 - [🔐 Security & Safeguards](#-security--safeguards)
 - [🤝 Contributing](#-contributing)
-- [📜 License](#-license)
 
 ---
 
@@ -375,12 +374,6 @@ Contributions welcome! Here's how to add a new expert role in **30 seconds**:
 ```
 
 3. Done. The sidebar picker, welcome header, and starter prompts grid auto-update.
-
----
-
-## 📜 License
-
-MIT License — feel free to fork, modify, and deploy in your own projects.
 
 ---
 
