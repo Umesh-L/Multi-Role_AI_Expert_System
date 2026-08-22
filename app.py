@@ -108,47 +108,78 @@ def _init_session_state() -> None:
     if "stream_mode" not in st.session_state:
         st.session_state.stream_mode = True
 
+    if "pending_prompt" not in st.session_state:
+        st.session_state.pending_prompt = None
+
 
 _init_session_state()
 
 
 # =============================================================================
-# CACHED GROQ CLIENT
+# GROQ CLIENT FACTORY — MODULE-LEVEL SINGLETON (no @st.cache_resource!)
 # =============================================================================
-# The client is lightweight but initializing it costs an SDK import +
-# key validation. Caching it by API key avoids redundant work.
-# =============================================================================
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# ARCHITECTURAL RATIONALE: Why we deliberately AVOID @st.cache_resource here
+#
+#   BUG THAT WAS HAPPENING ON STREAMLIT CLOUD:
+#     1. User pushes app to GitHub → connects Streamlit Cloud → app boots
+#     2. Streamlit Cloud serves the first HTTP request BEFORE the user has
+#        pasted their GROQ_API_KEY into the Settings → Secrets web UI
+#     3. Old code: @st.cache_resource caught GroqAuthenticationError, returned
+#        None, and CACHED THAT None FOREVER for the Python process lifetime
+#     4. User THEN goes to Settings → Secrets, pastes the key correctly, saves,
+#        and reruns the app → get_groq_client() still returns the CACHED None
+#        → "GROQ_API_KEY missing" banner persists FOREVER until a full reboot
+#        of the app from the Streamlit dashboard.
+#
+#   ADDITIONAL PROBLEM: @st.cache_resource also CACHES EXCEPTIONS by default in
+#   newer Streamlit releases — so even if we let GroqAuthenticationError bubble
+#   up, it would replay on every rerun until reboot.
+#
+#   SOLUTION:
+#     • Keep module-level `_CLIENT_INSTANCE: Optional[GroqClient] = None`
+#     • On SUCCESSFUL GroqClient() construction → write to singleton, reuse
+#     • On key-missing → return None WITHOUT writing singleton → next rerun
+#       will RE-ATTEMPT key resolution from scratch. This means the instant
+#       the user saves their secret in Streamlit Cloud + clicks Rerun, the
+#       client is built and stored, no reboot required.
+#
+#   PERFORMANCE JUSTIFICATION: GroqClient.__init__ is TRIVIALLY FAST. The
+#   heavy httpx SDK client is constructed LAZILY inside Groq SDK on the FIRST
+#   actual chat.completions.create() call — not in __init__. So we pay the
+#   cost of key-resolution (dict lookups) only on reruns that happen BEFORE
+#   the user enters their key (usually 0–2 reruns total).
+# ═══════════════════════════════════════════════════════════════════════════════
 
-@st.cache_resource(show_spinner=False)
-def get_groq_client() -> GroqClient:
-    """
-    Return a cached GroqClient instance.
+_CLIENT_INSTANCE: Optional[GroqClient] = None
 
-    The client reads the API key from Streamlit secrets / env vars.
-    If the key is missing we still return an instance so that the
-    AuthenticationError surfaces only when the user actually tries
-    to send a message (so the rest of the UI remains usable for
-    exploring roles, reading docs, etc).
+
+def get_groq_client() -> Optional[GroqClient]:
     """
+    Return a shared GroqClient, or None if GROQ_API_KEY is not configured yet.
+
+    Behavior:
+      * Once a client is successfully built, it is stored in a module singleton
+        and reused for every subsequent rerun.
+      * If the key is missing on a given run, **no state is persisted** — every
+        rerun re-attempts key resolution so newly-entered Streamlit Cloud
+        secrets are picked up immediately on next Rerun.
+    """
+    global _CLIENT_INSTANCE
+
+    # Fast path: client is already built — reuse forever
+    if _CLIENT_INSTANCE is not None:
+        return _CLIENT_INSTANCE
+
+    # Slow path: try to construct. Retried on every rerun until success.
     try:
-        # ══════════════════════════════════════════════════════════════════
-        # IMPORTANT: pass NO constructor arguments here.
-        #
-        #   - GroqClient() already uses DEFAULT_MODEL, 0.7 temp, 4096 tokens
-        #     as its __init__ defaults (see groq_client.py).
-        #   - @st.cache_resource keys on function args. If we ever passed
-        #     `default_model=st.session_state.model` here (old code), and
-        #     session_state.model was the decommissioned llama-3.1-70b on
-        #     the first run, that BAD cached client would live FOREVER in
-        #     the Python process, permanently poisoning every request.
-        #   - Temperature / max_tokens sliders are already forwarded as
-        #     explicit kwargs at the chat() / chat_stream() call sites,
-        #     so the client defaults are irrelevant at runtime.
-        # ══════════════════════════════════════════════════════════════════
-        return GroqClient()
+        _CLIENT_INSTANCE = GroqClient()
+        return _CLIENT_INSTANCE
     except GroqAuthenticationError:
-        # Swallow so we can show a nice banner instead of crashing the app
-        return None  # type: ignore[return-value]
+        # Intentionally do NOT assign to _CLIENT_INSTANCE here.
+        # We want the NEXT rerun to try key-lookup again from scratch.
+        return None
 
 
 # =============================================================================
@@ -380,7 +411,8 @@ def render_welcome_header() -> None:
                 key=f"starter_{role_key}_{idx}",
                 use_container_width=True,
             ):
-                run_user_prompt(prompt_text)
+                st.session_state.pending_prompt = prompt_text
+                st.rerun()
 
 
 # =============================================================================
@@ -592,6 +624,15 @@ def handle_chat_input() -> None:
 def main() -> None:
     """Top-level page assembly."""
     render_sidebar()
+
+    # --- Pending prompt dispatcher (runs OUTSIDE any column/layout context) ---
+    # This fixes the bug where clicking a starter button on the right half
+    # would constrain the response to only that 50%-width column. We store
+    # the prompt in session_state + rerun, then consume it here at full-width.
+    if st.session_state.pending_prompt is not None:
+        prompt_text = st.session_state.pending_prompt
+        st.session_state.pending_prompt = None
+        run_user_prompt(prompt_text)
 
     # --- Main content area -----------------------------------------------
     st.title("🤝 Consult an Expert AI")

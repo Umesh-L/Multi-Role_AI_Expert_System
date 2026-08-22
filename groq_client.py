@@ -253,28 +253,57 @@ class GroqClient:
 
     @staticmethod
     def _resolve_api_key(explicit_key: Optional[str]) -> str:
-        """Resolve the API key with the documented fallback chain."""
-        if explicit_key and explicit_key.strip():
-            return explicit_key.strip()
+        """
+        Resolve the API key with the documented fallback chain.
 
-        # 1. Try Streamlit secrets (if running inside Streamlit)
+        Also normalizes the key: users commonly paste keys wrapped in extra
+        quotes (e.g. '"gsk_abc..."' from a copy-paste of TOML content) which
+        Groq rejects with a cryptic 401. We strip any surrounding whitespace
+        AND any paired single / double quotes from every candidate key.
+        """
+
+        def _norm(raw: Any) -> str:
+            """Normalize a raw key value: stringify, strip whitespace + quotes."""
+            s = str(raw).strip()
+            # Strip surrounding double-quote pairs
+            if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+                s = s[1:-1]
+            # Strip surrounding single-quote pairs
+            if len(s) >= 2 and s[0] == "'" and s[-1] == "'":
+                s = s[1:-1]
+            return s.strip()
+
+        # --- 0. Explicit key passed directly to GroqClient(api_key=...) ----
+        if explicit_key:
+            normed = _norm(explicit_key)
+            if normed:
+                return normed
+
+        # --- 1. Streamlit secrets (if running inside Streamlit) -------------
         try:
             import streamlit as st  # type: ignore
-            if "GROQ_API_KEY" in st.secrets and st.secrets["GROQ_API_KEY"]:
-                return str(st.secrets["GROQ_API_KEY"]).strip()
+            if "GROQ_API_KEY" in st.secrets:
+                normed = _norm(st.secrets["GROQ_API_KEY"])
+                if normed:
+                    return normed
         except Exception:
-            # Streamlit not installed or secrets not available — that's fine
+            # Streamlit not installed, secrets malformed, or file missing.
+            # Silently fall through to the next candidate — this is expected
+            # when running outside a Streamlit environment.
             pass
 
-        # 2. Try environment variable (after loading .env to populate env)
+        # --- 2. Environment variable (after loading .env to populate env) --
         try:
             load_dotenv()
         except Exception:
             pass
-        env_key = os.environ.get("GROQ_API_KEY", "").strip()
-        if env_key:
-            return env_key
+        env_raw = os.environ.get("GROQ_API_KEY", "")
+        if env_raw:
+            normed = _norm(env_raw)
+            if normed:
+                return normed
 
+        # --- All candidates exhausted --------------------------------------
         raise GroqAuthenticationError(
             "GROQ_API_KEY not found. Please provide it in one of the following:\n"
             "  • Pass api_key= to GroqClient()\n"
@@ -313,11 +342,13 @@ class GroqClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         top_p: float = 1.0,
-        stream: bool = False,
         **extra_kwargs,
     ) -> ChatResponse:
         """
-        Call the Groq chat completions endpoint.
+        Call the Groq chat completions endpoint (non-streaming).
+
+        For streaming, use chat_stream() — it is a dedicated method that
+        yields text deltas as they arrive from Groq.
 
         Args:
             messages:     Standard [{role, content}, ...] list.
@@ -325,23 +356,11 @@ class GroqClient:
             temperature:  Sampling temperature (0.0 = deterministic, 2.0 = wild).
             max_tokens:   Maximum output tokens.
             top_p:        Nucleus sampling parameter.
-            stream:       If True, returns an iterator of chunks instead of a
-                          single ChatResponse. See chat_stream().
             extra_kwargs: Any other keyword args forwarded to the Groq SDK.
 
         Returns:
-            A ChatResponse instance (or an iterator when stream=True).
+            A ChatResponse instance with the full content + usage metadata.
         """
-        if stream:
-            return self.chat_stream(
-                messages=messages,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                top_p=top_p,
-                **extra_kwargs,
-            )
-
         try:
             raw_response = self._client.chat.completions.create(
                 messages=messages,
