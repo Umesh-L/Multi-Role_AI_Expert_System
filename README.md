@@ -33,6 +33,7 @@
 - [🔧 Configuration](#-configuration)
 - [🧩 Workflow Diagram](#-workflow-diagram)
 - [🖼️ Output Images](#-output-images)
+- [📽️ Demo Video](#-demo-video)
 - [🔐 Security & Safeguards](#-security--safeguards)
 - [🤝 Contributing](#-contributing)
 
@@ -346,6 +347,11 @@ sequenceDiagram
 <img width="1919" height="1017" alt="Screenshot 2026-08-22 120206" src="https://github.com/user-attachments/assets/c5a5d428-fd4c-4464-9ae8-613ad792aab5" />
 
 <img width="1919" height="1017" alt="Screenshot 2026-08-22 120213" src="https://github.com/user-attachments/assets/10c544bf-1d1a-45c4-9086-f3d08c7ce6c2" />
+
+---
+
+## 📽️ Demo Video
+https://github.com/user-attachments/assets/cf7d816b-f318-4d35-91ea-736a40fc9fec
 
 ---
 
